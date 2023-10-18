@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import h5py
+import tensorflow as tf
 
 # Nama file untuk menyimpan data pelatihan
 train_data_file = 'model.h5'
@@ -9,7 +10,7 @@ train_data_file = 'model.h5'
 detektor = cv2.createBackgroundSubtractorMOG2()
 
 # Membuka video
-video = cv2.VideoCapture('1menit.mp4')
+video = cv2.VideoCapture('video1.mp4')
 
 # Mengatur ukuran frame
 video.set(cv2.CAP_PROP_FRAME_WIDTH, 400)
@@ -79,6 +80,25 @@ while True:
 # Melepaskan sumber daya video
 video.release()
 cv2.destroyAllWindows()
+
+# Konversi data pelatihan menjadi bentuk yang sesuai untuk digunakan dengan TensorFlow
+train_images = np.array([data[0] for data in data_pelatihan])
+train_labels = np.array([data[1] for data in data_pelatihan])
+
+# Normalisasi data gambar
+train_images = tf.keras.utils.normalize(train_images, axis=1)
+
+# Membangun model
+model = tf.keras.models.Sequential()
+model.add(tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=train_images.shape[1:]))
+model.add(tf.keras.layers.MaxPooling2D(pool_size=(2, 2)))
+model.add(tf.keras.layers.Flatten())
+model.add(tf.keras.layers.Dense(64, activation='relu'))
+model.add(tf.keras.layers.Dense(total_kendaraan, activation='softmax'))
+
+# Kompilasi dan pelatihan model
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+model.fit(train_images, train_labels, epochs=10, batch_size=32)
 
 # Simpan data pelatihan dalam format .h5
 with h5py.File(train_data_file, 'w') as hf:
