@@ -1,81 +1,127 @@
-import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.preprocessing import image
+import cv2
 import numpy as np
-from PIL import Image
-import matplotlib.pyplot as plt
-train_dir = 'E:\Kuliah\Semester 5\Big Data Analytics\Coba Detect\Eksperiment\dataset'
+from time import sleep, time, ctime, strptime, strftime
+import os
+import glob
+import requests
 
-# Tentukan generator data untuk augmentasi gambar
-train_datagen = ImageDataGenerator(
-    rescale=1./255,  # Normalisasi nilai piksel gambar
-    rotation_range=20,  # Rotasi gambar dalam rentang 20 derajat
-    width_shift_range=0.2,  # Geser gambar secara horizontal sebesar 20% lebar gambar
-    height_shift_range=0.2,  # Geser gambar secara vertikal sebesar 20% tinggi gambar
-    shear_range=0.2,  # Melakukan shear transformation sebesar 20%
-    zoom_range=0.2,  # Melakukan zoom gambar sebesar 20%
-    horizontal_flip=True,  # Membalikkan gambar secara horizontal
-    fill_mode='nearest'  # Mengisi piksel yang kosong dengan piksel terdekat
-)
-# Membuat generator data latih
-train_generator = train_datagen.flow_from_directory(
-    train_dir,
-    target_size=(150, 150),  # Menyesuaikan ukuran gambar menjadi 150x150 piksel
-    batch_size=32,  # Jumlah gambar yang digunakan dalam setiap iterasi pelatihan
-    class_mode='categorical'  # Mode kelas untuk tugas klasifikasi multikelas
-)
-# Membangun model
-model = tf.keras.Sequential([
-    tf.keras.layers.Conv2D(32, (3,3), activation='relu', input_shape=(150, 150, 3)),
-    tf.keras.layers.MaxPooling2D(2, 2),
-    tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-    tf.keras.layers.MaxPooling2D(2,2),
-    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
-    tf.keras.layers.MaxPooling2D(2,2),
-    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
-    tf.keras.layers.MaxPooling2D(2,2),
-    tf.keras.layers.Flatten(),
-    tf.keras.layers.Dropout(0.5),  # Menggunakan dropout untuk mengurangi overfitting
-    tf.keras.layers.Dense(512, activation='relu'),
-    tf.keras.layers.Dense(3, activation='softmax')  # Menggunakan softmax untuk output tiga kelas
-])
 
-# Mengompilasi model
-model.compile(loss='categorical_crossentropy',
-              optimizer=tf.keras.optimizers.RMSprop(lr=1e-4),
-              metrics=['accuracy'])
-# Melatih model
-model.fit(
-    train_generator,
-    steps_per_epoch=100,  # Jumlah batch yang akan dieksekusi dalam setiap epoch
-    epochs=10  # Jumlah epoch pelatihan
-)
-# Tentukan path ke gambar yang akan diuji
-test_image_path = 'E:\\Kuliah\\Semester 5\\Big Data Analytics\\Coba Detect\\Eksperiment\\test\\tesmobil.jpg'
-# Load gambar dan ubah ukurannya menjadi 150x150 piksel
-test_image = image.load_img(test_image_path, target_size=(150, 150))
-# Ubah gambar menjadi array numerik
-test_image_array = image.img_to_array(test_image)
-# Normalisasi nilai piksel gambar
-test_image_array = test_image_array / 255.0
-# Ubah dimensi gambar menjadi batch dengan dimensi tambahan
-test_image_array = np.expand_dims(test_image_array, axis=0)
 
-# Melakukan prediksi menggunakan model
-predictions = model.predict(test_image_array)
+def detect_cars(video_path):
+    cap = cv2.VideoCapture(video_path)
+    car_cascade = cv2.CascadeClassifier('cars.xml')
+    delay = 600
+    detec = []
+    pos_line = 200
+    offset = 5
+    car = 0
 
-# Mengambil indeks kelas dengan probabilitas tertinggi
-predicted_class_index = np.argmax(predictions)
+    # Inisialisasi ID kendaraan
+    next_car_id = 1
+    car_ids = {}  # Dictionary untuk melacak ID kendaraan yang terdeteksi
 
-# Mengurutkan label kelas
-class_labels = ['mobil', 'motor', 'sepeda']
-# Mendapatkan label kelas yang diprediksi
-predicted_class_label = class_labels[predicted_class_index]
-# Menampilkan gambar hasil testing
-plt.imshow(test_image)
-plt.axis('off')
-plt.title('Predicted label: ' + predicted_class_label)
-plt.show()
+    # Fungsi center_object() dan loop deteksi kendaraan
+    def center_object(x, y, w, h):
+        x1 = int(w / 2)
+        y1 = int(h / 2)
+        cx = x + x1
+        cy = y + y1
+        return cx, cy
+    
+    def send_detection_data(car_id, timestamp):
+        data = {
+            'car_id': car_id,
+            'timestamp': timestamp
+        }
+        url = 'https://wkf6l4sh-4000.asse.devtunnels.ms/save_data'
 
-# # Simpan model ke file
-model.save('model.h5')
+        response = requests.post(url, json=data)
+
+        if response.status_code == 200:
+            print("Data terkirim dengan sukses")
+        else:
+            print("Gagal mengirim data")
+
+    while True:
+        ret, img = cap.read()
+        sleep(1 / delay)  # Menggunakan sleep untuk mengatur waktu
+        if type(img) == type(None):
+            break
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        cars = car_cascade.detectMultiScale(gray, 1.1, 1)
+        angle = -2  # Sudut kemiringan garis
+        radian = angle * np.pi / 180
+        x2 = int(1200 * np.cos(radian))
+        y2 = int(1200 * np.sin(radian))
+
+        cv2.line(img, (25, pos_line), (25 + x2, pos_line - y2), (255, 127, 0), 3)  # Membuat garis kemiringan
+
+        for (x, y, w, h) in cars:
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            center = center_object(x, y, w, h)
+            detec.append((center, next_car_id))  # Menambahkan ID kendaraan
+            cv2.circle(img, center, 4, (0, 0, 255), -1)
+
+            if center[1] < (pos_line + offset) and center[1] > (pos_line - offset):
+                car += 1
+                cv2.line(img, (25, pos_line), (25 + x2, pos_line - y2), (0, 127, 255), 3)
+
+                # Catat ID kendaraan yang melewati garis beserta waktu
+                car_ids[next_car_id] = (center, ctime(time()))  # Pencatatan waktu
+
+                # Cetak ID kendaraan dan waktu di terminal
+                print(f"ID Kendaraan {next_car_id} terdeteksi pada {ctime(time())}")
+
+            # Increment ID kendaraan untuk kendaraan berikutnya
+            next_car_id += 1
+
+        for car_id, (center, timestamp) in car_ids.items():
+            cv2.putText(img, f"ID Kendaraan: {car_id}, Waktu Terdeteksi: {timestamp}", (center[0], center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+        cv2.putText(img, "Kendaraan Lewat : " + str(car), (0, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 250), 3)
+        cv2.imshow('video', img)
+
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            break
+
+    # Menghitung total kendaraan
+    total_kendaraan = len(car_ids)
+    print(f"Total Kendaraan Terdeteksi: {total_kendaraan}")
+
+    # Menentukan sesi berdasarkan waktu machine learning
+    current_time = int(ctime(time()).split()[3].split(':')[0])
+    sesi = "pagi" if 6 <= current_time < 10 else "siang" if 11 <= current_time < 14 else "sore"
+    print(f"Sesi: {sesi}")
+
+    # Menentukan status kendaraan berdasarkan jumlah kendaraan
+    status_kendaraan = ""
+    if total_kendaraan <= 30:
+        status_kendaraan = "sepi"
+    elif total_kendaraan <= 60:
+        status_kendaraan = "renggang"
+    else:
+        status_kendaraan = "padat"
+    print(f"Status Kendaraan: {status_kendaraan}")
+
+    # Menentukan hari berdasarkan waktu machine learning
+    current_time = ctime(time())
+    current_time_struct = strptime(current_time, "%a %b %d %H:%M:%S %Y")
+    hari = strftime("%A", current_time_struct)
+    print(f"Hari: {hari}")
+
+    # Menutup video setelah selesai
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    # Mencari video terbaru dalam folder "uploads"
+    upload_dir = 'uploads'
+    video_files = glob.glob(os.path.join(upload_dir, '*.mp4'))
+    if video_files:
+        video_files.sort(key=os.path.getctime, reverse=True)
+        latest_video = video_files[0]
+        detect_cars(latest_video)
+    else:
+        print("Tidak ada file video dalam folder 'uploads'.")
