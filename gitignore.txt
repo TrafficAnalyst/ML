@@ -1,0 +1,9 @@
+# Mengabaikan semua file dengan ekstensi .log
+*.log
+
+# Mengabaikan folder yang bernama "node_modules"
+node_modules/
+
+# Mengabaikan file konfigurasi lokal
+.env
+
